@@ -1,0 +1,7 @@
+.env
+*.key
+*_token*
+credentials.json
+plaid_tokens/
+node_modules/
+.openclaw/
