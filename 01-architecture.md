@@ -1,176 +1,225 @@
-# drakk3ai — Architecture
+# drakk3-assistant — Architecture
 
-> **Document version:** 1.0
-> **Status:** Base definition — pre-code
->
-> ### Update policy
-> This document may be updated once the codebase is running.
-> **No changes may be applied without explicit confirmation from @drakk3 (David).**
-> Proposed updates must be presented as a diff of the affected section,
-> with a reason for the change. Update is only valid after verbal or written approval.
+> **Version:** 2.0  
+> **Status:** Canonical MVP architecture
 
 ---
 
-## Layer overview
+## 1. Architectural intent
 
-```
-┌─────────────────────────────────────┐
-│         Client — Expo RN            │
-│  Expo Router · Zustand · RQ · Maps  │
-└──────────────┬──────────────────────┘
-               │ HTTPS / REST + Realtime WS
-┌──────────────▼──────────────────────┐
-│         Backend — Supabase          │
-│  Auth · PostgreSQL · Realtime       │
-│  Edge Functions · RLS               │
-└──────┬───────────────┬──────────────┘
-       │               │
-┌──────▼──────┐ ┌──────▼──────────────┐
-│ Alexa ASK   │ │ Expo Notifications  │
-│ voice alerts│ │ FCM · APNs          │
-└─────────────┘ └─────────────────────┘
+Build the smallest architecture that can ship the geofencing MVP without painting the project into a corner.
+
+The MVP is **admin-first**:
+- one authenticated admin experience
+- admin-owned zone CRUD
+- background location detection on the running device
+- persisted enter/exit events
+- backend-controlled Alexa/mock dispatch
+
+Future multi-user tracking exists as an extension path, not as current scope.
+
+---
+
+## 2. Canonical system view
+
+```text
+┌─────────────────────────────────────────────┐
+│ Client — Expo React Native                 │
+│ Expo Router · Zustand · React Query        │
+│ expo-location · expo-task-manager          │
+└───────────────────┬─────────────────────────┘
+                    │ authenticated HTTPS
+┌───────────────────▼─────────────────────────┐
+│ Supabase                                   │
+│ Auth · Postgres · RLS · Edge Functions     │
+└──────────────┬─────────────────────┬────────┘
+               │                     │
+       ┌───────▼────────┐   ┌────────▼─────────┐
+       │ location_events │   │ Alexa provider   │
+       │ presence state  │   │ or mock adapter  │
+       └────────────────┘   └──────────────────┘
 ```
 
 ---
 
-## Folder structure
+## 3. Layer responsibilities
 
+### Client
+- authenticate the admin
+- fetch active zones
+- receive foreground/background GPS updates
+- run **candidate** circle detection with Haversine
+- keep transient local state required for background execution
+- submit candidate transitions to the backend contract
+- render admin UI and event history
+
+### Edge Function
+- re-validate every candidate transition
+- apply hysteresis and deduplication rules
+- update `zone_presence_state`
+- persist `location_events`
+- dispatch Alexa or mock integration
+- return deterministic result to the client
+
+### Database
+- store canonical zone definitions
+- store profile and zone ownership
+- store event history and latest zone membership state
+- enforce admin-first access through RLS
+
+---
+
+## 4. Canonical geofencing decision
+
+This was the main contradiction in the previous docs. The decision is now CLOSED.
+
+### Chosen model: hybrid detection with one geometry model
+
+- **Client** performs candidate transition detection.
+- **Server** validates and persists the final transition.
+- **Distance engine for MVP:** Haversine for both client and server.
+- **Zone shape for MVP:** circle only (`lat`, `lng`, `radius_meters`).
+- **Turf.js is deferred** until polygon or GeoJSON requirements exist.
+
+### Why this choice
+
+#### Benefits
+- one geometry model end-to-end
+- no client/server disagreement from mixed math libraries
+- simpler to test and reason about
+- fast enough for circle zones in MVP
+
+#### Tradeoff
+- less future-ready than a full Turf.js geospatial stack
+- acceptable because polygons are explicitly out of scope
+
+---
+
+## 5. Source of truth
+
+The source of truth is split intentionally:
+
+- `zones` = source of truth for zone definitions
+- `zone_presence_state` = source of truth for the latest inside/outside status per user+zone
+- `location_events` = immutable history of accepted transitions
+
+The client is **never** the final authority for a persisted enter/exit event.
+
+---
+
+## 6. Runtime flow
+
+```text
+GPS update
+  → client loads active zones
+  → client calculates distance with Haversine
+  → client detects candidate enter/exit
+  → client calls process-zone-transition Edge Function
+  → server re-checks distance and hysteresis window
+  → server checks zone_presence_state + idempotency
+  → server writes location_events if accepted
+  → server updates zone_presence_state
+  → server dispatches Alexa or mock provider
+  → client receives accepted / ignored / rejected result
 ```
+
+Detailed runtime rules live in `07-geofencing-runtime.md`.
+
+---
+
+## 7. Folder structure for MVP
+
+```text
 src/
-├── app/                        # Expo Router — screens only, no logic
+├── app/
 │   ├── (auth)/
 │   │   └── login.tsx
-│   ├── (admin)/
-│   │   ├── index.tsx           # Admin home / dashboard
-│   │   ├── map.tsx             # Live map with users + zones
-│   │   ├── zones.tsx           # Zone management
-│   │   └── users.tsx           # User & group management
-│   └── (user)/
-│       └── index.tsx           # User home (passive view)
+│   └── (admin)/
+│       ├── index.tsx
+│       ├── zones.tsx
+│       └── events.tsx
 │
 ├── features/
-│   ├── geofencing/
-│   │   ├── components/         # ZoneCircle, UserMarker, ZoneCard
-│   │   ├── hooks/
-│   │   │   ├── useGeofencing.ts        # Main hook — starts background task
-│   │   │   └── useZoneDetection.ts     # Haversine engine
-│   │   ├── services/
-│   │   │   ├── zoneEngine.ts           # Detection logic (pure functions)
-│   │   │   └── alexaTrigger.ts         # Calls Edge Function
-│   │   ├── store/
-│   │   │   └── geofencingStore.ts      # Zustand slice
-│   │   └── types.ts
-│   │
-│   └── [future-module]/        # Same pattern — replicate this structure
+│   └── geofencing/
+│       ├── components/
+│       ├── hooks/
+│       │   ├── useGeofencing.ts
+│       │   └── useZoneDetection.ts
+│       ├── services/
+│       │   ├── zoneEngine.ts
+│       │   └── transitionApi.ts
+│       ├── store/
+│       │   └── geofencingStore.ts
+│       └── types.ts
 │
 ├── shared/
 │   ├── components/
-│   │   ├── Button.tsx
-│   │   ├── Badge.tsx
-│   │   ├── Card.tsx
-│   │   └── Input.tsx
 │   ├── hooks/
 │   │   ├── useAuth.ts
-│   │   ├── usePermissions.ts
-│   │   └── useGroups.ts
+│   │   └── useAuthGuard.ts
 │   ├── lib/
-│   │   ├── supabaseClient.ts   # Singleton — imported everywhere
-│   │   └── haversine.ts        # Pure geo utility
+│   │   ├── errors.ts
+│   │   ├── haversine.ts
+│   │   └── supabaseClient.ts
 │   └── types/
-│       ├── database.ts         # Generated from Supabase schema
-│       └── index.ts            # Re-exports
+│       └── database.ts
 │
 └── config/
-    ├── themes.ts               # Accent tokens per theme
-    ├── base.ts                 # Fixed tokens (bg, text, semantic)
-    ├── constants.ts            # App-wide constants
-    └── env.ts                  # Typed env variables
+    ├── base.ts
+    ├── constants.ts
+    ├── env.ts
+    ├── themes.ts
+    └── typography.ts
 ```
+
+Deferred from MVP:
+- `(user)` route group
+- group-aware admin map
+- feature modules beyond geofencing
+- permission management screens
 
 ---
 
-## Dependency rules
+## 8. Dependency rules
 
-Features never import from each other. Violations break the architecture.
-
-```
-app/         → can import from: features/, shared/
-features/X   → can import from: shared/ only
-shared/      → can import from: config/ only
-config/      → no imports (pure config)
+```text
+app/       → features/, shared/
+features/  → shared/
+shared/    → config/
+config/    → no internal imports
 ```
 
-If two features need the same thing → it moves to `shared/`.
-If a screen needs logic → it lives in a feature hook, not in the screen file.
+Additional architectural rules:
+- screens contain composition only, not business logic
+- stores hold state only; no API calls inside store actions
+- services are pure or clearly named integration wrappers
+- Edge Functions own server-side side effects
 
 ---
 
-## Expo Router — route groups
+## 9. Security boundary
 
-| Group | Access | Guard |
-|---|---|---|
-| `(auth)` | Public | Redirect to `(admin)` or `(user)` if session exists |
-| `(admin)` | Admin only | Redirect to `(auth)` if no session or role !== 'admin' |
-| `(user)` | Authenticated users | Redirect to `(auth)` if no session |
+### Direct from client
+- auth/session operations
+- zone CRUD through Supabase client under RLS
+- read event history under RLS
 
-Route protection lives in a shared `useAuthGuard` hook called at the layout level of each group.
+### Through Edge Function only
+- candidate transition processing
+- event creation
+- presence-state mutation
+- Alexa/mock dispatch
 
----
-
-## Supabase client — singleton pattern
-
-```ts
-// shared/lib/supabaseClient.ts
-import { createClient } from '@supabase/supabase-js';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Database } from '../types/database';
-
-const supabaseUrl  = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const supabaseKey  = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
-
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
-  auth: {
-    storage:         AsyncStorage,
-    autoRefreshToken:  true,
-    persistSession:    true,
-    detectSessionInUrl:false,
-  },
-});
-```
-
-Import `supabase` from this file everywhere. Never instantiate a second client.
+This boundary keeps the noisy, stateful geofencing workflow off the screen layer and out of direct table writes.
 
 ---
 
-## Edge Functions — when to use
+## 10. Non-goals for this version
 
-Use Edge Functions for logic that must not run on the client:
-
-| Use case | Where |
-|---|---|
-| Trigger Alexa notification | Edge Function |
-| Send push notification to group | Edge Function |
-| Validate zone entry server-side | Edge Function |
-| Read/write DB directly | Client via Supabase SDK (RLS handles security) |
-| Format display data | Client |
-
-Edge Functions live in `supabase/functions/[name]/index.ts` outside `src/`.
-
----
-
-## Background GPS task
-
-`expo-task-manager` registers a background task that survives app minimization.
-The task runs on every significant location change and calls `zoneEngine.ts`.
-
-```ts
-// Registered once at app startup
-TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
-  if (error) return;
-  const { locations } = data as LocationTaskData;
-  locations.forEach(loc => checkZones(loc.coords));
-});
-```
-
-State change logic (enter/exit) is managed in `geofencingStore` to prevent
-duplicate triggers while the user remains inside a zone.
+The following are intentionally NOT part of the MVP architecture:
+- multi-user passive tracking
+- groups and membership distribution
+- Turf.js and polygon geofencing
+- realtime map presence
+- push-notification fanout
+- generic module registry behavior

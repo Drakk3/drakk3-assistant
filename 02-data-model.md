@@ -1,287 +1,279 @@
-# drakk3ai — Data Model
+# drakk3-assistant — Data Model
 
-> **Document version:** 1.0
-> **Status:** Base definition — pre-code
->
-> ### Update policy
-> This document may be updated once the codebase is running.
-> **No changes may be applied without explicit confirmation from @drakk3 (David).**
-> Proposed updates must be presented as a diff of the affected section,
-> with a reason for the change. Update is only valid after verbal or written approval.
+> **Version:** 2.0  
+> **Status:** Final MVP schema definition
 
 ---
 
-## Table creation order
+## 1. MVP schema decision
 
-Create in this order to satisfy FK dependencies:
+The previous docs mixed MVP entities with future platform entities.
+
+That is now closed.
+
+### In MVP
+- `profiles`
+- `zones`
+- `alexa_triggers`
+- `zone_presence_state`
+- `location_events`
+
+### Deferred from MVP
+- `groups`
+- `group_members`
+- `user_permissions`
+- `modules`
+
+### Why
+- the frozen MVP is admin-first and single-operator
+- deferred tables add coordination cost without helping `TKT-010`
+- they can be introduced later without breaking the chosen MVP contracts
+
+---
+
+## 2. Table creation order
 
 1. `profiles`
-2. `groups`
-3. `group_members`
-4. `user_permissions`
-5. `zones`
-6. `alexa_triggers`
-7. `location_events`
-8. `modules`
+2. `zones`
+3. `alexa_triggers`
+4. `zone_presence_state`
+5. `location_events`
 
 ---
 
-## SQL — table definitions
+## 3. Canonical SQL schema
 
 ```sql
--- 1. profiles (extends auth.users)
+create extension if not exists pgcrypto;
+
 create table public.profiles (
-  id            uuid primary key references auth.users(id) on delete cascade,
-  display_name  text not null,
-  role          text not null default 'user' check (role in ('admin', 'user')),
-  avatar_url    text,
+  id uuid primary key references auth.users(id) on delete cascade,
+  display_name text not null,
+  role text not null default 'admin' check (role in ('admin')),
   theme_preference text not null default 'green' check (theme_preference in ('green', 'violet')),
-  is_active     boolean not null default true,
-  created_at    timestamptz not null default now()
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
--- 2. groups
-create table public.groups (
-  id          uuid primary key default gen_random_uuid(),
-  name        text not null,
-  description text,
-  created_by  uuid not null references public.profiles(id),
-  created_at  timestamptz not null default now()
-);
-
--- 3. group_members
-create table public.group_members (
-  id        uuid primary key default gen_random_uuid(),
-  group_id  uuid not null references public.groups(id) on delete cascade,
-  user_id   uuid not null references public.profiles(id) on delete cascade,
-  joined_at timestamptz not null default now(),
-  unique (group_id, user_id)
-);
-
--- 4. user_permissions
-create table public.user_permissions (
-  id            uuid primary key default gen_random_uuid(),
-  user_id       uuid not null references public.profiles(id) on delete cascade,
-  module_key    text not null,
-  can_view      boolean not null default false,
-  can_interact  boolean not null default false,
-  granted_at    timestamptz not null default now(),
-  unique (user_id, module_key)
-);
-
--- 5. zones
 create table public.zones (
-  id             uuid primary key default gen_random_uuid(),
-  name           text not null,
-  latitude       double precision not null,
-  longitude      double precision not null,
-  radius_meters  integer not null check (radius_meters > 0),
-  is_active      boolean not null default true,
-  group_id       uuid not null references public.groups(id) on delete cascade,
-  created_by     uuid not null references public.profiles(id),
-  created_at     timestamptz not null default now()
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  latitude double precision not null,
+  longitude double precision not null,
+  radius_meters integer not null check (radius_meters between 20 and 5000),
+  enter_buffer_meters integer not null default 15 check (enter_buffer_meters between 0 and 100),
+  exit_buffer_meters integer not null default 15 check (exit_buffer_meters between 0 and 100),
+  is_active boolean not null default true,
+  alexa_enabled boolean not null default true,
+  created_by uuid not null references public.profiles(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
--- 6. alexa_triggers
 create table public.alexa_triggers (
-  id               uuid primary key default gen_random_uuid(),
-  zone_id          uuid not null unique references public.zones(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(),
+  zone_id uuid not null unique references public.zones(id) on delete cascade,
+  provider text not null default 'mock' check (provider in ('mock', 'alexa')),
   message_template text not null,
-  alexa_device_id  text not null,
-  is_active        boolean not null default true
+  target_device text,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
--- 7. location_events
+create table public.zone_presence_state (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  zone_id uuid not null references public.zones(id) on delete cascade,
+  current_state text not null check (current_state in ('inside', 'outside')),
+  last_event_type text check (last_event_type in ('enter', 'exit')),
+  last_event_at timestamptz,
+  last_distance_meters integer,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, zone_id)
+);
+
 create table public.location_events (
-  id               uuid primary key default gen_random_uuid(),
-  user_id          uuid not null references public.profiles(id) on delete cascade,
-  zone_id          uuid not null references public.zones(id) on delete cascade,
-  event_type       text not null check (event_type in ('enter', 'exit')),
-  latitude         double precision not null,
-  longitude        double precision not null,
-  distance_meters  integer not null,
-  triggered_at     timestamptz not null default now()
+  id uuid primary key default gen_random_uuid(),
+  client_event_id uuid not null unique,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  zone_id uuid not null references public.zones(id) on delete cascade,
+  event_type text not null check (event_type in ('enter', 'exit')),
+  latitude double precision not null,
+  longitude double precision not null,
+  accuracy_meters integer,
+  distance_meters integer not null,
+  event_source text not null check (event_source in ('foreground', 'background', 'manual-test')),
+  dispatch_status text not null default 'pending' check (dispatch_status in ('pending', 'mocked', 'sent', 'failed', 'skipped')),
+  dispatch_error text,
+  triggered_at timestamptz not null default now(),
+  processed_at timestamptz not null default now()
 );
-
--- 8. modules
-create table public.modules (
-  id          uuid primary key default gen_random_uuid(),
-  key         text not null unique,
-  name        text not null,
-  is_enabled  boolean not null default true,
-  config      jsonb not null default '{}'
-);
-
--- Seed: geofencing module
-insert into public.modules (key, name, is_enabled)
-values ('geofencing', 'Geofencing', true);
 ```
 
 ---
 
-## Indexes
+## 4. Entity rationale
+
+### `profiles`
+- mirrors `auth.users`
+- holds display name and theme preference
+- MVP keeps a single role: `admin`
+
+### `zones`
+- stores only circle zones
+- per-zone enter/exit buffers make hysteresis explicit and testable
+- `alexa_enabled` allows disabling dispatch without deleting configuration
+
+### `alexa_triggers`
+- stable integration contract per zone
+- `provider` supports `mock` first without changing the app contract
+
+### `zone_presence_state`
+- latest accepted inside/outside state per user+zone
+- required for server-side dedupe and anti-flapping
+- not a historical log
+
+### `location_events`
+- immutable accepted transitions only
+- `client_event_id` makes retries idempotent
+- dispatch fields support operational visibility in the admin UI
+
+---
+
+## 5. Indexes
 
 ```sql
--- location_events — most frequent query pattern
-create index idx_location_events_user    on public.location_events(user_id);
-create index idx_location_events_zone    on public.location_events(zone_id);
-create index idx_location_events_time    on public.location_events(triggered_at desc);
-
--- zones — active zones for a group (called on every GPS update)
-create index idx_zones_group_active      on public.zones(group_id, is_active);
-
--- group_members — find groups for a user
-create index idx_group_members_user      on public.group_members(user_id);
-
--- user_permissions — check permissions by user + module
-create index idx_permissions_user_module on public.user_permissions(user_id, module_key);
+create index idx_zones_active on public.zones(is_active);
+create index idx_location_events_user_time on public.location_events(user_id, triggered_at desc);
+create index idx_location_events_zone_time on public.location_events(zone_id, triggered_at desc);
+create index idx_location_events_dispatch_status on public.location_events(dispatch_status, triggered_at desc);
+create index idx_zone_presence_state_state on public.zone_presence_state(current_state, updated_at desc);
 ```
 
 ---
 
-## Row Level Security (RLS)
+## 6. RLS strategy
+
+The MVP is admin-first, but the geofencing pipeline still needs a clear rule set.
+
+### Principle
+- interactive table access happens as authenticated admin
+- transition processing and integration side effects happen through Edge Functions using server-side privileges
+- no temporary open-access table policies
+
+### Policy matrix
+
+| Table | Admin select | Admin insert | Admin update | Admin delete | Service role / Edge Function |
+|---|---:|---:|---:|---:|---:|
+| `profiles` | yes (own row) | no direct | limited own update | no | bootstrap/provisioning |
+| `zones` | yes | yes | yes | yes | yes |
+| `alexa_triggers` | yes | yes | yes | yes | yes |
+| `zone_presence_state` | yes | no direct | no direct | no direct | full control |
+| `location_events` | yes | no direct | no direct | no direct | full control |
+
+### Canonical SQL policies
 
 ```sql
--- Enable RLS on all tables
-alter table public.profiles         enable row level security;
-alter table public.groups           enable row level security;
-alter table public.group_members    enable row level security;
-alter table public.user_permissions enable row level security;
-alter table public.zones            enable row level security;
-alter table public.alexa_triggers   enable row level security;
-alter table public.location_events  enable row level security;
-alter table public.modules          enable row level security;
+alter table public.profiles enable row level security;
+alter table public.zones enable row level security;
+alter table public.alexa_triggers enable row level security;
+alter table public.zone_presence_state enable row level security;
+alter table public.location_events enable row level security;
 
--- profiles: users can read their own, admin reads all
-create policy "profiles: own read"
-  on public.profiles for select
+create policy "profiles_select_own"
+  on public.profiles
+  for select
   using (auth.uid() = id);
 
-create policy "profiles: admin read all"
-  on public.profiles for select
+create policy "profiles_update_own_safe_fields"
+  on public.profiles
+  for update
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
+
+create policy "zones_admin_all"
+  on public.zones
+  for all
   using (exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role = 'admin'
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role = 'admin' and p.is_active = true
+  ))
+  with check (exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role = 'admin' and p.is_active = true
   ));
 
-create policy "profiles: own update"
-  on public.profiles for update
-  using (auth.uid() = id);
-
--- zones: members of the group can read, admin can write
-create policy "zones: group members read"
-  on public.zones for select
+create policy "alexa_triggers_admin_all"
+  on public.alexa_triggers
+  for all
   using (exists (
-    select 1 from public.group_members
-    where group_id = zones.group_id and user_id = auth.uid()
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role = 'admin' and p.is_active = true
+  ))
+  with check (exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role = 'admin' and p.is_active = true
   ));
 
-create policy "zones: admin write"
-  on public.zones for all
+create policy "zone_presence_state_admin_read"
+  on public.zone_presence_state
+  for select
   using (exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role = 'admin'
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role = 'admin' and p.is_active = true
   ));
 
--- location_events: own events only, admin reads all
-create policy "location_events: own read"
-  on public.location_events for select
-  using (auth.uid() = user_id);
-
-create policy "location_events: admin read all"
-  on public.location_events for select
+create policy "location_events_admin_read"
+  on public.location_events
+  for select
   using (exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role = 'admin'
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role = 'admin' and p.is_active = true
   ));
-
-create policy "location_events: insert own"
-  on public.location_events for insert
-  with check (auth.uid() = user_id);
 ```
+
+### Important note
+
+`zone_presence_state` and `location_events` are not directly inserted from the client in the MVP. They are written by the transition-processing backend path.
 
 ---
 
-## TypeScript types
+## 7. Profile provisioning
 
-```ts
-// shared/types/database.ts
-// Manually maintained until Supabase CLI type generation is set up
+`profiles` must be created automatically from `auth.users`.
 
-export type Role = 'admin' | 'user';
-export type ThemeName = 'green' | 'violet';
-export type EventType = 'enter' | 'exit';
+### Chosen strategy
+- create the first admin user manually in Supabase Auth during environment bootstrap
+- attach a database trigger that inserts the matching `profiles` row on signup
+- default role remains `admin` for MVP because there is no general-user flow yet
 
-export interface Profile {
-  id:                 string;
-  display_name:       string;
-  role:               Role;
-  avatar_url:         string | null;
-  theme_preference:   ThemeName;
-  is_active:          boolean;
-  created_at:         string;
-}
+### Tradeoff
+- not scalable for production multi-user onboarding
+- correct for MVP because it removes ambiguity and avoids temporary manual SQL patches later
 
-export interface Group {
-  id:          string;
-  name:        string;
-  description: string | null;
-  created_by:  string;
-  created_at:  string;
-}
+---
 
-export interface GroupMember {
-  id:        string;
-  group_id:  string;
-  user_id:   string;
-  joined_at: string;
-}
+## 8. TypeScript contract baseline
 
-export interface UserPermission {
-  id:           string;
-  user_id:      string;
-  module_key:   string;
-  can_view:     boolean;
-  can_interact: boolean;
-  granted_at:   string;
-}
+`shared/types/database.ts` should be generated from Supabase schema after migrations are defined.
 
-export interface Zone {
-  id:             string;
-  name:           string;
-  latitude:       number;
-  longitude:      number;
-  radius_meters:  number;
-  is_active:      boolean;
-  group_id:       string;
-  created_by:     string;
-  created_at:     string;
-}
+Domain-level aliases can wrap generated types, but the generated file is the base contract.
 
-export interface AlexaTrigger {
-  id:               string;
-  zone_id:          string;
-  message_template: string;
-  alexa_device_id:  string;
-  is_active:        boolean;
-}
+Recommended generated entities:
+- `Profile`
+- `Zone`
+- `AlexaTrigger`
+- `ZonePresenceState`
+- `LocationEvent`
 
-export interface LocationEvent {
-  id:              string;
-  user_id:         string;
-  zone_id:         string;
-  event_type:      EventType;
-  latitude:        number;
-  longitude:       number;
-  distance_meters: number;
-  triggered_at:    string;
-}
+---
 
-export interface Module {
-  id:         string;
-  key:        string;
-  name:       string;
-  is_enabled: boolean;
-  config:     Record<string, unknown>;
-}
-```
+## 9. Deferred schema evolution
+
+The following are intentionally postponed:
+- groups and membership tables
+- granular permissions
+- module registry
+- polygon geofencing columns
+- provider-specific Alexa delivery metadata beyond `dispatch_status` and `dispatch_error`

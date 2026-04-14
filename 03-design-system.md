@@ -1,335 +1,178 @@
-# drakk3ai — Design System
+# drakk3-assistant — Design System
 
-> **Document version:** 1.0
-> **Status:** Base definition — pre-code
->
-> ### Update policy
-> This document may be updated once the codebase is running.
-> **No changes may be applied without explicit confirmation from @drakk3 (David).**
-> Proposed updates must be presented as a diff of the affected section,
-> with a reason for the change. Update is only valid after verbal or written approval.
+> **Version:** 2.0  
+> **Status:** Canonical visual source of truth
 
 ---
 
-## Creative north star: "The Silent Operator"
+## 1. Canonical status
 
-Precision tool, not a consumer app. Command-line utility refined through
-high-end editorial restraint. **Hacker discipline meets premium restraint.**
+This file is the **only** visual source of truth for the MVP.
 
-Core rules that override everything:
-- Elevation through background layers — never shadows
-- 0.5px borders only — anything thicker is clunky
-- Left-aligned always — no center alignment ever
-- No gradients, no blur, no glow effects
-- Transitions snap (150ms) — elements appear, they don't arrive
+`drakk3ai-design-system.md` is deprecated and must not be used for new decisions.
 
 ---
 
-## Token files
+## 2. Creative north star
 
-```ts
-// config/base.ts — fixed across all themes
-export const base = {
-  bg:             '#0a0a0a',
-  surface:        '#111111',
-  elevated:       '#161616',
-  borderDefault:  '#1e1e1e',
-  borderEmphasis: '#2a2a2a',
-  textPrimary:    '#e2e2e2',
-  textSecondary:  '#888888',
-  textMuted:      '#444444',
-  danger:         '#e05c5c',
-  warning:        '#f0a500',
-} as const;
+**The Silent Operator**
 
-// config/themes.ts — swap accent here to change the whole app
-export const themes = {
-  green: {
-    accent:       '#1db954',
-    accentHover:  '#17a349',
-    accentBg:     '#0d2818',
-    accentBorder: '#1e3a2e',
-  },
-  violet: {
-    accent:       '#ba9eff',
-    accentHover:  '#8455ef',
-    accentBg:     '#1a0d33',
-    accentBorder: '#2e1a5e',
-  },
-} as const;
+The product should feel like a precision tool, not a consumer app.
 
-export type ThemeName = keyof typeof themes;
-export type Theme = typeof themes[ThemeName] & typeof base;
-
-export function buildTheme(name: ThemeName): Theme {
-  return { ...base, ...themes[name] };
-}
-```
+Core principles:
+- elevation through surface layers, never shadows
+- left-aligned layouts only
+- no gradients, no glow, no blur
+- sharp, fast transitions
+- restrained accent usage over a dark mono-driven interface
 
 ---
 
-## ThemeContext
+## 3. Canonical tokens
 
-```ts
-// shared/hooks/useTheme.ts
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { buildTheme, ThemeName, Theme } from '../../config/themes';
+### Base colors
 
-const STORAGE_KEY = '@drakk3ai:theme';
+| Token | Value | Usage |
+|---|---|---|
+| `bg` | `#0A0A0A` | app background |
+| `surface` | `#111111` | default surfaces |
+| `elevated` | `#161616` | nested panels / active rows |
+| `borderDefault` | `#1E1E1E` | hairline separators |
+| `borderEmphasis` | `#2A2A2A` | inputs / stronger dividers |
+| `textPrimary` | `#E2E2E2` | primary content |
+| `textSecondary` | `#888888` | secondary content |
+| `textMuted` | `#444444` | metadata / labels |
+| `danger` | `#E05C5C` | destructive / error |
+| `warning` | `#F0A500` | warning / caution |
 
-interface ThemeContextValue {
-  theme:     Theme;
-  themeName: ThemeName;
-  setTheme:  (name: ThemeName) => void;
-}
+### Theme accents
 
-const ThemeContext = createContext<ThemeContextValue | null>(null);
+#### `green` (default)
+- `accent`: `#1DB954`
+- `accentHover`: `#17A349`
+- `accentBg`: `#0D2818`
+- `accentBorder`: `#1E3A2E`
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [themeName, setThemeName] = useState<ThemeName>('green');
-
-  useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then(stored => {
-      if (stored === 'green' || stored === 'violet') setThemeName(stored);
-    });
-  }, []);
-
-  const setTheme = (name: ThemeName) => {
-    setThemeName(name);
-    AsyncStorage.setItem(STORAGE_KEY, name);
-    // Also persist to Supabase profiles.theme_preference
-  };
-
-  return (
-    <ThemeContext.Provider value={{ theme: buildTheme(themeName), themeName, setTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
-}
-
-export function useTheme(): ThemeContextValue {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) throw new Error('useTheme must be used inside ThemeProvider');
-  return ctx;
-}
-```
+#### `violet`
+- `accent`: `#BA9EFF`
+- `accentHover`: `#8455EF`
+- `accentBg`: `#1A0D33`
+- `accentBorder`: `#2E1A5E`
 
 ---
 
-## Typography
+## 4. Typography
 
-Font family: `SF Mono` → `Fira Code` → `JetBrains Mono` (fallback chain)
+Font stack:
+- `SF Mono`
+- `Fira Code`
+- `JetBrains Mono`
 
-```ts
-// config/typography.ts
-export const typography = {
-  display: { fontSize: 28, fontWeight: '700', letterSpacing: -0.56 },
-  heading: { fontSize: 18, fontWeight: '600', letterSpacing: -0.18 },
-  body:    { fontSize: 13, fontWeight: '400', letterSpacing: 0.13 },
-  label:   { fontSize: 10, fontWeight: '500', letterSpacing: 1.4  },  // UPPERCASE
-  mono:    { fontSize: 11, fontWeight: '400', letterSpacing: 0.66 },
-} as const;
-```
+| Token | Size | Weight | Tracking |
+|---|---:|---:|---:|
+| `display` | 28 | 700 | -0.56 |
+| `heading` | 18 | 600 | -0.18 |
+| `body` | 13 | 400 | 0.13 |
+| `label` | 10 | 500 | 1.4 |
+| `mono` | 11 | 400 | 0.66 |
 
----
-
-## Design tokens
-
-| Token | Value |
-|---|---|
-| `radiusSm` | 6 |
-| `radiusMd` | 10 |
-| `radiusLg` | 14 |
-| `radiusPill` | 999 |
-| `borderWidth` | 0.5 |
-| `borderFocus` | 1 (accent color) |
-| Spacing | 4 · 8 · 12 · 16 · 24 · 32 · 48 |
+Rules:
+- labels are uppercase
+- content is left-aligned
+- hierarchy comes from weight, spacing, and surface contrast
 
 ---
 
-## Components
+## 5. Shape, spacing, borders, motion
 
-### Button
+### Radius
+- `radiusSm = 6`
+- `radiusMd = 10`
+- `radiusLg = 14`
+- `radiusPill = 999`
 
-```tsx
-// shared/components/Button.tsx
-import { TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { useTheme } from '../hooks/useTheme';
+### Borders
+- default border width: `0.5`
+- focus border width: `1`
+- no other border widths in MVP
 
-type Variant = 'primary' | 'ghost' | 'muted';
+### Spacing scale
+- `4, 8, 12, 16, 24, 32, 48`
 
-interface ButtonProps {
-  label:    string;
-  variant?: Variant;
-  onPress:  () => void;
-  disabled?: boolean;
-}
-
-export function Button({ label, variant = 'primary', onPress, disabled }: ButtonProps) {
-  const { theme } = useTheme();
-
-  const styles = StyleSheet.create({
-    primary: {
-      backgroundColor: theme.accent,
-      borderRadius: 7,
-      paddingHorizontal: 18,
-      paddingVertical: 9,
-    },
-    ghost: {
-      backgroundColor: 'transparent',
-      borderRadius: 7,
-      borderWidth: 0.5,
-      borderColor: theme.accent,
-      paddingHorizontal: 18,
-      paddingVertical: 9,
-    },
-    muted: {
-      backgroundColor: theme.elevated,
-      borderRadius: 7,
-      borderWidth: 0.5,
-      borderColor: '#222',
-      paddingHorizontal: 18,
-      paddingVertical: 9,
-    },
-    primaryText: { color: '#0a0a0a', fontSize: 11, fontWeight: '700',
-                   letterSpacing: 0.66, textTransform: 'uppercase' },
-    ghostText:   { color: theme.accent, fontSize: 11, fontWeight: '500',
-                   letterSpacing: 0.66 },
-    mutedText:   { color: '#555', fontSize: 11, letterSpacing: 0.66 },
-  });
-
-  const textStyle = variant === 'primary' ? styles.primaryText
-                  : variant === 'ghost'   ? styles.ghostText
-                  : styles.mutedText;
-
-  return (
-    <TouchableOpacity style={styles[variant]} onPress={onPress}
-      disabled={disabled} activeOpacity={0.75}>
-      <Text style={textStyle}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-```
-
-### Badge
-
-```tsx
-// shared/components/Badge.tsx
-import { View, Text, StyleSheet } from 'react-native';
-import { useTheme } from '../hooks/useTheme';
-
-type Status = 'active' | 'away' | 'offline' | 'unknown';
-
-const statusTokens: Record<Status, { bg: string; text: string; border: string }> = {
-  active:  { bg: '',      text: '',      border: '' },  // filled from theme at runtime
-  away:    { bg: '#1a1200', text: '#f0a500', border: '#3a2e00' },
-  offline: { bg: '#1a0808', text: '#e05c5c', border: '#3a1212' },
-  unknown: { bg: '#111',    text: '#444',    border: '#1e1e1e' },
-};
-
-export function Badge({ status }: { status: Status }) {
-  const { theme } = useTheme();
-
-  const tokens = status === 'active'
-    ? { bg: theme.accentBg, text: theme.accent, border: theme.accentBorder }
-    : statusTokens[status];
-
-  return (
-    <View style={{ backgroundColor: tokens.bg, borderWidth: 0.5,
-      borderColor: tokens.border, borderRadius: 4,
-      paddingHorizontal: 9, paddingVertical: 3 }}>
-      <Text style={{ color: tokens.text, fontSize: 9, fontWeight: '700',
-        letterSpacing: 0.8, textTransform: 'uppercase' }}>
-        {status}
-      </Text>
-    </View>
-  );
-}
-```
-
-### Card
-
-```tsx
-// shared/components/Card.tsx
-import { View, ViewProps } from 'react-native';
-import { base } from '../../config/base';
-
-export function Card({ children, style, ...props }: ViewProps) {
-  return (
-    <View style={[{
-      backgroundColor: base.surface,
-      borderWidth: 0.5,
-      borderColor: base.borderDefault,
-      borderRadius: 12,
-      padding: 16,
-    }, style]} {...props}>
-      {children}
-    </View>
-  );
-}
-```
-
-### Input
-
-```tsx
-// shared/components/Input.tsx
-import { useState } from 'react';
-import { TextInput, TextInputProps, View, Text } from 'react-native';
-import { useTheme } from '../hooks/useTheme';
-import { base } from '../../config/base';
-
-interface InputProps extends TextInputProps {
-  label?: string;
-}
-
-export function Input({ label, style, ...props }: InputProps) {
-  const { theme } = useTheme();
-  const [focused, setFocused] = useState(false);
-
-  return (
-    <View>
-      {label && (
-        <Text style={{ color: base.textMuted, fontSize: 10, fontWeight: '500',
-          letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 8 }}>
-          {label}
-        </Text>
-      )}
-      <TextInput
-        style={[{
-          backgroundColor: '#0f0f0f',
-          borderWidth: 0.5,
-          borderColor: focused ? theme.accent : base.borderEmphasis,
-          borderRadius: 7,
-          paddingHorizontal: 14,
-          paddingVertical: 10,
-          color: '#cccccc',
-          fontSize: 11,
-          fontFamily: 'SFMono-Regular',
-        }, style]}
-        placeholderTextColor={base.textMuted}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        {...props}
-      />
-    </View>
-  );
-}
-```
+### Motion
+- duration: `150ms`
+- easing: `cubic-bezier(0.4, 0, 0.2, 1)`
+- no entrance animations
+- no bounce / elastic motion
 
 ---
 
-## Motion
+## 6. Component rules
 
-```ts
-// config/motion.ts
-export const motion = {
-  duration: 150,
-  easing: [0.4, 0, 0.2, 1] as const, // cubic-bezier — swift snap
-};
-```
+### Buttons
 
-- No entrance animations — elements appear, they don't arrive
-- No bouncy or elastic curves
-- Active state pulse: `opacity` keyframe only (`1 → 0.4 → 1`)
-- Haptic feedback on zone enter/exit events via `expo-haptics`
+#### Primary
+- background: `accent`
+- text: `bg`
+- border: none
+- radius: `7`
+
+#### Ghost
+- background: transparent
+- text: `accent`
+- border: `0.5` using `accent`
+
+#### Muted
+- background: `elevated`
+- text: `textSecondary`
+- border: `0.5` using `borderEmphasis`
+
+### Inputs
+- background: between `surface` and `bg`; implementation token should be centralized in config
+- default border: `borderEmphasis`
+- focus border: `accent`
+- placeholder: `textMuted`
+
+### Cards
+- background: `surface`
+- border: `0.5` using `borderDefault`
+- radius: `12`
+- padding: `16`
+
+### Badges
+- active badge uses accent tokens
+- warning/offline states use semantic tokens only
+
+---
+
+## 7. Hard rules for implementation
+
+These rules are aligned with `AGENTS.md` and are non-negotiable in MVP implementation:
+
+- no hardcoded shadows
+- no gradient usage
+- no `textAlign: 'center'`
+- no border radius above `14` except `radiusPill`
+- no hardcoded component colors when a token exists
+- prefer tokenized config over ad-hoc values in components
+
+---
+
+## 8. Theme persistence
+
+Theme preference is stored in:
+- database: `profiles.theme_preference`
+- local cache: AsyncStorage
+
+The persisted value is one of:
+- `green`
+- `violet`
+
+---
+
+## 9. What changed from the old design docs
+
+- this document is now canonical
+- duplicate design-system guidance was removed
+- implementation examples were intentionally removed to avoid rule conflicts
+- token values and visual restrictions are now the actual source of truth

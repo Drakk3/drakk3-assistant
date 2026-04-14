@@ -1,4 +1,9 @@
 .env
+.env.local
+.expo/
+.expo-shared/
+dist/
+web-build/
 *.key
 *_token*
 credentials.json

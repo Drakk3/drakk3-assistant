@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "drakk3-assistant",
+    "slug": "drakk3-assistant",
+    "scheme": "drakk3-assistant",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true,
+          "locationAlwaysAndWhenInUsePermission": "Allow drakk3-assistant to monitor location updates for geofencing transitions.",
+          "locationAlwaysPermission": "Allow drakk3-assistant to keep monitoring location in the background for zone transitions.",
+          "locationWhenInUsePermission": "Allow drakk3-assistant to access your location while using the app for geofencing setup."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
